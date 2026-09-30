@@ -114,6 +114,8 @@ DeepSeek thinking_mode 默认 disabled，节省简单任务的思考 token；可
 
 官方 MCP Python SDK 1.x，stdio，无需开放端口。mcp.stdio.example.json 和 codex.mcp.example.toml 含 command/args/cwd。其他 harness 使用相同启动参数，外层配置结构按客户端适配。
 
+长期注册、逐工具许可、完整参数示例和排障见 [桌面 Harness Agent 接入手册](HARNESS_INTEGRATION.md)。该文档可单独交给其他桌面 agent，包含安装、注册、调用与验证流程。Codex 示例默认提交需审批、查询/取消放行；严格人工审批还需有效 reviewer 为 user。
+
 run_codex_selftest.py 用 CLI -c 临时注册本服务，忽略用户配置、关闭 Apps，不修改全局/项目配置。非交互默认可能拒绝 MCP 调用，因此自检临时 default_tools_approval_mode=approve，并只暴露 list_capabilities、submit_batch、submit_image、get_task 四个已授权工具；shell 保持 read-only，prompt 禁止其他工具。
 
 以下会调用真实 API 并可能计费：

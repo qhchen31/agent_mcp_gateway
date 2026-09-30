@@ -1,7 +1,23 @@
 # Merge this table into your Codex MCP configuration; do not replace the entire file.
+# For strict human approval, with user consent set top-level approvals_reviewer = "user"
+# and interactive approval_policy = "on-request" before any TOML tables.
+# See HARNESS_INTEGRATION.md for reviewer overrides and verification boundaries.
 [mcp_servers.agent-mcp]
 command = 'E:\Project\Script\agent_mcp\.venv\Scripts\python.exe'
 cwd = 'E:\Project\Script\agent_mcp'
 args = ['-m', 'agent_mcp', '--config', 'E:\Project\Script\agent_mcp\config.json', 'serve']
 startup_timeout_sec = 20
 tool_timeout_sec = 45
+enabled = true
+required = false
+default_tools_approval_mode = "prompt"
+enabled_tools = ["list_capabilities", "submit_text", "query_knowledge", "submit_audio", "submit_image", "submit_batch", "get_task", "list_tasks", "cancel_task"]
+
+[mcp_servers.agent-mcp.tools.list_capabilities]
+approval_mode = "approve"
+[mcp_servers.agent-mcp.tools.get_task]
+approval_mode = "approve"
+[mcp_servers.agent-mcp.tools.list_tasks]
+approval_mode = "approve"
+[mcp_servers.agent-mcp.tools.cancel_task]
+approval_mode = "approve"
