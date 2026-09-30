@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "agent-mcp": {
+      "command": "E:\\Project\\Script\\agent_mcp\\.venv\\Scripts\\python.exe",
+      "cwd": "E:\\Project\\Script\\agent_mcp",
+      "args": ["-m", "agent_mcp", "--config", "E:\\Project\\Script\\agent_mcp\\config.json", "serve"]
+    }
+  }
+}

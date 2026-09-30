@@ -1,0 +1,7 @@
+# Merge this table into your Codex MCP configuration; do not replace the entire file.
+[mcp_servers.agent-mcp]
+command = 'E:\Project\Script\agent_mcp\.venv\Scripts\python.exe'
+cwd = 'E:\Project\Script\agent_mcp'
+args = ['-m', 'agent_mcp', '--config', 'E:\Project\Script\agent_mcp\config.json', 'serve']
+startup_timeout_sec = 20
+tool_timeout_sec = 45
