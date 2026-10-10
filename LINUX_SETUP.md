@@ -123,3 +123,19 @@ stdio handshake and task lifecycle. CI covers Linux and Windows on Python
 either OS; its PowerShell speech fixture remains Windows-specific. On Linux,
 provide your own `inputs/codex-test.wav` if you choose to run that paid test.
 No real API request is needed for installation or offline verification.
+
+After saving provider keys and installing the plugin, you can explicitly run
+small **paid** online checks:
+
+```bash
+.venv/bin/python run_online_selftest.py
+```
+
+This submits one DeepSeek text task and Gemini text, search, synthetic-tone
+audio, and 512-size image tasks, then one image edit if generation succeeds.
+Each case is submitted once with retries disabled. It uses the plugin's
+launcher with a temporary configuration limiting tokens and timeouts. Full
+results and the synthetic media remain in Git-ignored `outputs/` and
+`inputs/`; no key is copied into the configuration or reports. Token limits
+do not cap image or Google Search fees. Online results depend on provider
+model access, quota, and network availability.
