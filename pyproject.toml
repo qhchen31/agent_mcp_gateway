@@ -23,6 +23,9 @@ agent-mcp = "agent_mcp.cli:main"
 [tool.setuptools.packages.find]
 include = ["agent_mcp*"]
 
+[tool.setuptools.package-data]
+agent_mcp = ["config.example.json"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

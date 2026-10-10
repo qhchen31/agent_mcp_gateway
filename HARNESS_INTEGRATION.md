@@ -1,3 +1,7 @@
+# Linux / Codex plugin
+
+Linux users: start with [LINUX_SETUP.md](LINUX_SETUP.md). It documents portable initialization, Secret Service credentials, plugin installation, and Linux launch parameters. The Windows examples below remain applicable on Windows.
+
 # 桌面 Harness Agent 接入手册
 
 读者是负责配置桌面 agent harness、随后通过 MCP 委派任务的 agent。本文包含本机注册、调用与验证所需信息；无须读取历史聊天。仓库：https://github.com/qhchen31/agent_mcp_gateway 。

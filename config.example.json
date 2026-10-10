@@ -15,8 +15,8 @@
   "max_input_file_bytes": 12582912,
   "max_response_bytes": 67108864,
   "gemini_max_request_bytes": 20000000,
-  "allowed_input_dirs": ["E:\\Project\\Script\\agent_mcp\\inputs", "E:\\Project\\Script\\agent_mcp\\outputs"],
-  "output_dir": "E:\\Project\\Script\\agent_mcp\\outputs",
+  "allowed_input_dirs": ["./inputs", "./outputs"],
+  "output_dir": "./outputs",
   "credential_service": "local-agent-mcp",
   "default_models": {"text": "deepseek-text", "knowledge": "gemini-knowledge", "image": "gemini-image", "audio": "gemini-audio"},
   "models": {

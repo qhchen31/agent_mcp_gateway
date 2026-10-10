@@ -51,7 +51,7 @@ def test_removed_provider_and_bad_default_rejected(settings):
         Settings.model_validate(data)
 
 def test_keyring_fails_closed(monkeypatch):
-    import keyring
-    monkeypatch.setattr(keyring, "get_keyring", lambda: object())
-    with pytest.raises(AgentError, match="Windows Credential Manager"):
+    import sys
+    monkeypatch.setattr(sys, "platform", "unsupported")
+    with pytest.raises(AgentError, match="Supported credential stores"):
         Credentials("test").get("deepseek")
