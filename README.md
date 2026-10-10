@@ -15,7 +15,7 @@ Gemini 3.8 Flash 支持图像/音频输入，但不能生成图像，绘图因�
 
 ## 使用与密钥
 
-要求 Windows、Python 3.11+；当前凭据存储仅实现 Windows Credential Manager。首次安装（PowerShell，按需调整克隆位置）：
+支持 Windows 与 Linux，要求 Python 3.11+。Windows 使用 Credential Manager；Linux 使用桌面 Secret Service（例如 GNOME Keyring），不回退明文或环境变量密钥。Linux 安装、密钥加载和 Codex 插件说明见 [Linux 与插件接入](LINUX_SETUP.md)。首次安装 Windows（PowerShell，按需调整克隆位置）：
 
 ```powershell
 git clone git@github.com:qhchen31/agent_mcp_gateway.git 'E:\Project\Script\agent_mcp'
@@ -25,7 +25,7 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m agent_mcp init
 ```
 
-模板中的输入、输出目录及 harness 示例使用 `E:\Project\Script\agent_mcp`。若克隆到其他位置，初始化后请修改 config.json 中的 `allowed_input_dirs`、`output_dir`，并同步调整 MCP 启动路径。
+`init` 会根据配置文件所在目录生成绝对输入/输出路径，无需手动替换盘符。公开模板使用相对路径占位符，应通过 `init` 初始化。Windows harness 示例仍使用 `E:\Project\Script\agent_mcp`，请同步调整 MCP 启动路径。
 
 然后在交互式 PowerShell 中保存密钥：
 
@@ -82,7 +82,7 @@ Set-Location 'E:\Project\Script\agent_mcp'
 
 第一版不自动下载 URL、分段长录音、保留上游会话或执行代码。Gemini 使用内联媒体，完整 base64 JSON 最多 20 MB。
 
-强制 WinVaultKeyring，不回退明文配置/环境变量。日志不记录密钥或请求/响应全文；完成后释放原始请求对象。结果仍可能包含任务内容。凭据管理器解决误提交风险，不能隔离同用户下有脚本执行权限的进程。
+按操作系统显式选择 WinVaultKeyring 或 Linux SecretService.Keyring，不使用自动选择的第三方/明文后端，也不回退明文配置/环境变量。日志不记录密钥或请求/响应全文；完成后释放原始请求对象。结果仍可能包含任务内容。凭据管理器解决误提交风险，不能隔离同用户下有脚本执行权限的进程。
 
 ## 配置
 

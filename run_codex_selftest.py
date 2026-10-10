@@ -27,7 +27,7 @@ def main():
     audio = ROOT / "inputs" / "codex-test.wav"
     if not audio.is_file():
         raise SystemExit("Prepare inputs/codex-test.wav with the supplied local speech script first")
-    python = ROOT / ".venv" / "Scripts" / "python.exe"
+    python = sys.executable
     def literal(value):
         return "'" + str(value).replace("'", "") + "'"
     override = "mcp_servers.agent-mcp={command=" + literal(python) + ",args=['-m','agent_mcp','--config'," + literal(config) + ",'serve'],cwd=" + literal(ROOT) + ",required=true,startup_timeout_sec=20,tool_timeout_sec=45,default_tools_approval_mode='approve',enabled_tools=['list_capabilities','submit_batch','submit_image','get_task']}"

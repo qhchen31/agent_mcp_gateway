@@ -1,4 +1,5 @@
 import base64
+import sys
 from pathlib import Path
 from uuid import uuid4
 
@@ -16,18 +17,29 @@ class AgentError(Exception):
 
 
 class Credentials:
-    """Fail closed unless the active backend is the Windows credential vault."""
+    """Use only the OS credential vault; never fall back to files or environment keys."""
     def __init__(self, service: str):
         self.service = service
 
     @staticmethod
     def backend():
-        import keyring
-        from keyring.backends.Windows import WinVaultKeyring
-        backend = keyring.get_keyring()
-        if not isinstance(backend, WinVaultKeyring):
-            raise AgentError("credential_backend", "Windows Credential Manager backend is required")
-        return backend
+        try:
+            if sys.platform == "win32":
+                from keyring.backends.Windows import WinVaultKeyring
+                backend = WinVaultKeyring()
+            elif sys.platform.startswith("linux"):
+                from keyring.backends.SecretService import Keyring
+                backend = Keyring()
+            else:
+                raise AgentError("credential_backend", "Supported credential stores: Windows Credential Manager and Linux Secret Service")
+            # Checks service availability without fetching any stored credentials.
+            if backend.priority <= 0:
+                raise RuntimeError("Credential store unavailable")
+            return backend
+        except AgentError:
+            raise
+        except Exception:
+            raise AgentError("credential_backend", "Cannot access OS credential store. On Linux, install and unlock GNOME Keyring (Secret Service) and run in the same D-Bus session as your MCP client") from None
 
     def get(self, provider: str) -> str:
         try:
@@ -35,7 +47,7 @@ class Credentials:
         except AgentError:
             raise
         except Exception:
-            raise AgentError("credential_backend", "Cannot access Windows Credential Manager") from None
+            raise AgentError("credential_backend", "Cannot access OS credential store; unlock it in your desktop session") from None
         if not value:
             raise AgentError("missing_credential", f"Set the {provider} credential using the local CLI")
         return value

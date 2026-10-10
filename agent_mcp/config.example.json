@@ -1,0 +1,29 @@
+{
+  "knowledge_search_enabled": true,
+  "global_concurrency": 4,
+  "provider_concurrency": {"deepseek": 2, "gemini": 2},
+  "queue_limit": 32,
+  "text_timeout_seconds": 180,
+  "media_timeout_seconds": 600,
+  "max_output_tokens": 4096,
+  "rate_limit_retries": 2,
+  "retry_base_seconds": 1,
+  "max_retry_delay_seconds": 30,
+  "result_ttl_seconds": 3600,
+  "max_completed_tasks": 256,
+  "max_prompt_characters": 100000,
+  "max_input_file_bytes": 12582912,
+  "max_response_bytes": 67108864,
+  "gemini_max_request_bytes": 20000000,
+  "allowed_input_dirs": ["./inputs", "./outputs"],
+  "output_dir": "./outputs",
+  "credential_service": "local-agent-mcp",
+  "default_models": {"text": "deepseek-text", "knowledge": "gemini-knowledge", "image": "gemini-image", "audio": "gemini-audio"},
+  "models": {
+    "deepseek-text": {"provider": "deepseek", "model": "deepseek-flash", "capabilities": ["text"], "thinking_mode": "disabled"},
+    "gemini-text": {"provider": "gemini", "model": "gemini-3.8-flash", "capabilities": ["text"]},
+    "gemini-knowledge": {"provider": "gemini", "model": "gemini-3.8-flash", "capabilities": ["knowledge"]},
+    "gemini-image": {"provider": "gemini", "model": "gemini-3.1-flash-image", "capabilities": ["image"], "image_size": "1K"},
+    "gemini-audio": {"provider": "gemini", "model": "gemini-3.8-flash", "capabilities": ["audio"]}
+  }
+}
