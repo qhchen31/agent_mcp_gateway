@@ -83,7 +83,7 @@ required = false
 startup_timeout_sec = 20
 tool_timeout_sec = 45
 default_tools_approval_mode = "prompt"
-enabled_tools = ["list_capabilities", "submit_text", "query_knowledge", "submit_audio", "submit_image", "submit_batch", "get_task", "list_tasks", "cancel_task"]
+enabled_tools = ["list_capabilities", "submit_text", "query_knowledge", "submit_audio", "submit_image", "submit_vision", "submit_document", "submit_speech", "submit_batch", "get_task", "list_tasks", "cancel_task"]
 
 [mcp_servers.agent-mcp.tools.list_capabilities]
 approval_mode = "approve"
@@ -101,7 +101,7 @@ approval_mode = "approve"
 
 ### 其他 Harness 的许可要求
 
-五个提交工具 `submit_text`、`query_knowledge`、`submit_audio`、`submit_image`、`submit_batch` 发起收费 API 工作并发送所提供内容，须用户批准后调用。一次批量许可涵盖该次 `submit_batch` 中展示的任务，新增任务需新的许可。说明任务数量、目的、提供者、是否上传媒体及是否允许联网搜索。
+八个提交工具 `submit_text`、`query_knowledge`、`submit_audio`、`submit_image`、`submit_vision`、`submit_document`、`submit_speech`、`submit_batch` 发起收费 API 工作并发送所提供内容，须用户批准后调用。一次批量许可涵盖该次 `submit_batch` 中展示的任务，新增任务需新的许可。说明任务数量、目的、提供者、是否上传媒体及是否允许联网搜索。
 
 查询能力、读取任务结果与取消任务可自动调用。不要设置整个服务永久自动批准来消除提示，也不要通过 shell/CLI 自检绕过提交审批。若平台只能按服务器审批，请保持服务器审批；若完全没有工具审批能力，在用户明确授权该任务/批次之前不调用提交工具。网关自身不包含审批 UI 或身份认证，审批由 harness 执行。
 
@@ -118,6 +118,9 @@ approval_mode = "approve"
 | query_knowledge | question | context, max_output_tokens, model | gemini-knowledge → gemini-3.8-flash |
 | submit_audio | file_path, prompt | max_output_tokens, model | gemini-audio → gemini-3.8-flash |
 | submit_image | prompt | reference_paths, model | gemini-image → gemini-3.1-flash-image |
+| submit_vision | file_paths, prompt | context, max_output_tokens, model | gemini-vision → gemini-3.8-flash |
+| submit_document | file_path | prompt, pages, max_output_tokens, model | gemini-document → gemini-3.8-flash |
+| submit_speech | text | voice, style, model | gemini-speech → gemini-3.8-flash-tts |
 | submit_batch | tasks | 无 | 按每项 kind 选择默认路由 |
 | get_task | task_id | wait_seconds（0–30） | 本进程结果 |
 | list_tasks | 无 | 无 | 本进程任务元数据 |
@@ -159,9 +162,19 @@ approval_mode = "approve"
 {"tasks":[{"kind":"text","prompt":"总结这段文本","context":"待总结内容","max_output_tokens":256},{"kind":"knowledge","prompt":"解释光合作用，简短回答","max_output_tokens":256}]}
 ```
 
-批量任务项 schema：必需 kind（text/knowledge/audio/image）；model 可省略；prompt 必须非空。可选 context、system_prompt、max_output_tokens；音频必须 file_path，图像可 reference_paths。image 不接受 context 或 max_output_tokens。其他 kind 不接受媒体路径。整体校验通过才入队；执行成功与失败按任务分别记录。
+批量任务项 schema：必需 kind（text/knowledge/audio/image/vision/document/speech）；model 可省略；prompt 必须非空。可选 context、system_prompt、max_output_tokens；音频必须 file_path，图像可 reference_paths。image 不接受 context 或 max_output_tokens。vision 使用 file_paths；document 使用 file_path、可选 pages，prompt 省略时忠实提取；speech 使用 prompt 作为朗读正文及可选 voice/style，不接受 max_output_tokens/context/自定义 system_prompt。其他 kind 不接受不对应的媒体字段。整体校验通过才入队；执行成功与失败按任务分别记录。
 
 ## 5. 异步结果与并行调度
+
+### 新增读图／PDF／TTS 调用细节（0.3）
+
+读图使用 submit_vision，参数示例 `{"file_paths":["E:\\Project\\Script\\agent_mcp\\inputs\\chart.png"],"prompt":"描述图片","max_output_tokens":1024}`。默认仅文本输出，最多8张（max_vision_images）；不要使用绘图 gemini-image 别名。
+
+PDF 使用 submit_document，参数示例 `{"file_path":"E:\\Project\\Script\\agent_mcp\\inputs\\paper.pdf","pages":[3,1],"max_output_tokens":4096}`。prompt 可省略，默认忠实提取 Markdown；也可定制摘要/问答。pages 为不重复的1-based原页码，按传入顺序本地截页后上传，省略则全文件；默认最多20页，源文件最多12MiB，完整请求仍受20MB限制，不自动分片。复制页可能携带关联对象，不提供像素级内容隔离保证。加密/损坏PDF拒绝。原页号映射返回在 result.pages，源页数在 source_page_count。结果保存为UTF-8 Markdown artifact并返回最多2000字符预览；preview_truncated仅指预览裁短，truncated指模型截断。complete只表示上游正常STOP，不代表OCR完整准确；截断文件也是部分内容。读图/PDF默认LOW思考，可配置 understanding_thinking_level。
+
+TTS 使用 submit_speech，参数示例 `{"text":"你好，这是测试。","voice":"Kore","style":"清晰、自然"}`。默认 gemini-speech → gemini-3.8-flash-tts，单人预置音色WAV，正文与style分开。正文默认最多2000字符，另以正文和style合计8000 UTF-8字节保守预检模型输入；默认音色speech_voice=Kore。输出预算独立speech_max_output_tokens=16384；不接受max_output_tokens/context/自定义system_prompt，不做克隆、分段、拼接或流式。result.text可为空；artifacts返回音频绝对路径、duration_seconds、sample_rate和channels，24kHz单声道16-bit WAV可由父harness显示播放器。未完整结束的音频按失败处理。
+
+新增提交均进入现有自动审查。三类接口默认别名分别gemini-vision/gemini-document/gemini-speech，可配置且必须具备对应capability。单项speech的text在submit_batch中改写作prompt；document批量项可省略prompt。所有新媒体任务沿用600秒执行超时。其余状态查询方式见下文。
 
 提交返回 `{"ok":true,"task":{...}}`；批量返回 `{"ok":true,"tasks":[...]}`。这仅表示接受，不表示已完成。保存每项 task_id。父 agent 可以继续独立工作，随后调用：
 
@@ -179,7 +192,7 @@ approval_mode = "approve"
 
 ## 6. 文件、限额和故障处理
 
-默认只读取 inputs/outputs 中的绝对路径（含解析后的路径校验），每文件最多 12 MiB，Gemini 完整内联 JSON 最多 20 MB。图片输入 PNG/JPEG/WebP；音频支持 mp3/wav/m4a/mp4/aac/ogg/flac/webm 扩展名，实际编码仍由 API 判定。submit_image 是生成/编辑，不是任意图像分析接口；当前没有单独的图像理解工具。
+默认只读取 inputs/outputs 中的绝对路径（含解析后的路径校验），每文件最多 12 MiB，Gemini 完整内联 JSON 最多 20 MB。图片输入 PNG/JPEG/WebP；音频支持 mp3/wav/m4a/mp4/aac/ogg/flac/webm 扩展名，实际编码仍由 API 判定。submit_image 是生成/编辑，不是任意图像分析接口；使用 submit_vision 进行图片理解。
 
 默认全局并发 4、每家 2、等待队列 32；按每个服务进程计算，多 harness 各自启动时不会共享限额。文本/知识执行超时 180 秒，媒体 600 秒，均不含排队。get_task 的等待与 API 执行超时是两个独立概念，勿把 harness 工具超时设置成整个绘图耗时。
 
@@ -203,7 +216,7 @@ approval_mode = "approve"
 
 ## 7. 验证和交付标准
 
-先无费用验证：注册项能读回、stdio 初始化成功、发现上述 9 个工具、list_capabilities 返回默认路由。Codex 可运行 `codex mcp get agent-mcp --json` 检查注册，**该命令本身不验证握手或 API**。再在新会话仅调用 list_capabilities，不提交任务。
+先无费用验证：注册项能读回、stdio 初始化成功、发现上述 12 个工具、list_capabilities 返回默认路由。Codex 可运行 `codex mcp get agent-mcp --json` 检查注册，**该命令本身不验证握手或 API**。再在新会话仅调用 list_capabilities，不提交任务。
 
 仅在用户同意付费小样本测试后提交一个短文本/知识任务，保存 task_id，确认 succeeded、实际 model、非截断；验证搜索时检查 live_search、sources，不根据回答“我搜索了”判断。要验证人工许可弹窗，应在真实交互会话观察提交前提示；读取配置只能证明策略已写入。不要自动运行包含绘图的完整自检。
 

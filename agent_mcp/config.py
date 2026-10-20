@@ -4,8 +4,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Provider = Literal["deepseek", "gemini"]
-Kind = Literal["text", "knowledge", "image", "audio"]
-SUPPORTED = {"deepseek": {"text", "knowledge"}, "gemini": {"text", "knowledge", "image", "audio"}}
+Kind = Literal["text", "knowledge", "image", "audio", "vision", "document", "speech"]
+SUPPORTED = {"deepseek": {"text", "knowledge"}, "gemini": {"text", "knowledge", "image", "audio", "vision", "document", "speech"}}
 
 
 class StrictModel(BaseModel):
@@ -28,6 +28,14 @@ class ModelSpec(StrictModel):
 
 
 class Settings(StrictModel):
+    max_vision_images: int = Field(default=8, ge=1, le=16)
+    max_pdf_pages: int = Field(default=20, ge=1, le=1000)
+    max_speech_characters: int = Field(default=2000, ge=1)
+    speech_max_output_tokens: int = Field(default=16384, ge=1, le=16384)
+    speech_voice: str = Field(default="Kore", min_length=1)
+    speech_style: str = Field(default="", max_length=1000)
+    document_preview_characters: int = Field(default=2000, ge=1)
+    understanding_thinking_level: Literal["low", "medium", "high"] = "low"
     knowledge_search_enabled: bool = True
     global_concurrency: int = Field(default=4, ge=1, le=128)
     provider_concurrency: dict[Provider, int] = Field(default_factory=lambda: {"deepseek": 2, "gemini": 2})

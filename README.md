@@ -1,4 +1,4 @@
-# 本地 Agent MCP（0.2）
+# 本地 Agent MCP（0.3）
 
 供 Codex 等本地 harness 委派独立任务，父 agent 负责拆分、提供上下文与整合。子模型不继承父 agent 的历史、终端或工具权限。
 
@@ -6,6 +6,8 @@
 | --- | --- |
 | 文本、代码、建议 | DeepSeek V4.1 Flash，API ID deepseek-flash |
 | 世界知识问答 | gemini-3.8-flash，独立 knowledge 类型 |
+| 图片理解、OCR、PDF 提取 | gemini-3.8-flash |
+| 语音生成（单人 WAV） | gemini-3.8-flash-tts |
 | 音频理解、摘要、问答、转录 | gemini-3.8-flash |
 | 图像生成、参考图编辑 | gemini-3.1-flash-image |
 
@@ -47,6 +49,9 @@ Set-Location 'E:\Project\Script\agent_mcp'
 | list_capabilities | 模型别名、default_models 和执行限制；不保证账户权限 |
 | submit_text | 文本/代码，model 省略时默认 DeepSeek |
 | query_knowledge | 世界知识问答，默认 Gemini 3.8 Flash，允许 Google 搜索 |
+| submit_vision | 图片转文本，默认 Gemini 3.8 Flash |
+| submit_document | PDF 选页提取／问答，保存 Markdown 并返回预览 |
+| submit_speech | 单人文本转语音，正文与 style 分开，保存 WAV |
 | submit_audio | 音频理解/转录，model 省略时默认 Gemini 3.8 Flash |
 | submit_image | 文生图/参考图编辑，默认 Gemini Flash Image |
 | submit_batch | 整体校验与原子入队，按 kind 分别选择默认模型 |
@@ -74,6 +79,8 @@ Set-Location 'E:\Project\Script\agent_mcp'
 
 知识结果包含 `search_enabled`（工具是否开启）、`live_search`（是否返回搜索执行证据）、`knowledge_source`（web 或 model）、`sources`（来源标题和链接）、`search_queries` 与完整 `grounding_metadata`（引用关联和 Search Suggestions）。允许搜索不代表每次都会搜索，模型直接回答时 `live_search=false`。上游来源可能使用 Google 跳转链接，服务保留原始链接。父 agent 展示搜索答案时应同时提供来源，并按官方要求处理 Search Suggestions；原始 HTML 仅作为数据返回。若改配 DeepSeek 知识模型，目前仅提供模型知识回答。
 
+新增接口参数、限额及实例见 [多模态接口说明](MULTIMODAL_GUIDE.md)。当前共 8 个任务接口（含批量）和 4 个管理接口。
+
 ## 文件与安全边界
 
 输入必须为绝对路径，默认只读取 inputs 和 outputs；运行时再次检查解析路径与大小。参考图支持 PNG/JPEG/WebP，音频支持常见 mp3/wav/m4a/mp4/aac/ogg/flac/webm 扩展名，平台仍可能限制具体编码。媒体会上传到所选官方 API。
@@ -90,7 +97,7 @@ Set-Location 'E:\Project\Script\agent_mcp'
 
 | 配置 | 默认值 |
 | --- | --- |
-| default_models | text=deepseek-text，knowledge=gemini-knowledge，audio=gemini-audio，image=gemini-image |
+| default_models | text=deepseek-text，knowledge=gemini-knowledge，audio=gemini-audio，image=gemini-image，vision=gemini-vision，document=gemini-document，speech=gemini-speech |
 | knowledge_search_enabled | true，仅对 Gemini knowledge 任务启用 Google Search |
 | global_concurrency / provider_concurrency | 4 / 每个平台 2 |
 | queue_limit | 32，仅计等待任务 |
@@ -144,6 +151,10 @@ CLI 退出码 0 不等于 API 任务成功，需检查 final.json 中每项 stat
 离线测试不读真实密钥、不调用 API。真实单项自检每次执行一个任务。常见错误代码：missing_credential、invalid_model、path_denied、queue_full、request_too_large、quota_exceeded。账户模型/区域/额度需以真实调用为准。
 
 `run_knowledge_selftest.py` 通过真实 MCP stdio 服务只提交一次搜索核查问题，并验证工具区分、默认路由、实际模型、答案、实际搜索和来源返回。输出上限 256 tokens，包含思考 token 的实际用量以 usage 为准；Google Search 的费用另按平台规则计算，token 上限不限制搜索次数。测试证据保存至 outputs/knowledge-self-test。最新结果见 KNOWLEDGE_TEST_REPORT.md。已有 harness 需重启 MCP 服务或重新加载工具列表才能发现新接口。
+
+## 多模态版本验收
+
+0.3 版本真实 MCP stdio 验收与初次 PDF 截断修正记录见 [多模态测试报告](MULTIMODAL_TEST_REPORT.md)。运行 `python run_multimodal_selftest.py` 会提交读图、PDF 和 TTS 三个收费任务；可附加 `document`、`vision` 或 `speech` 仅测一项。
 
 ## 官方参考
 

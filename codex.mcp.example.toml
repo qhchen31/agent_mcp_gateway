@@ -11,7 +11,7 @@ tool_timeout_sec = 45
 enabled = true
 required = false
 default_tools_approval_mode = "prompt"
-enabled_tools = ["list_capabilities", "submit_text", "query_knowledge", "submit_audio", "submit_image", "submit_batch", "get_task", "list_tasks", "cancel_task"]
+enabled_tools = ["list_capabilities", "submit_text", "query_knowledge", "submit_audio", "submit_image", "submit_vision", "submit_document", "submit_speech", "submit_batch", "get_task", "list_tasks", "cancel_task"]
 
 [mcp_servers.agent-mcp.tools.list_capabilities]
 approval_mode = "approve"

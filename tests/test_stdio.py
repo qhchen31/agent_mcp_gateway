@@ -20,7 +20,7 @@ async def test_real_stdio_task_lifecycle(settings, tmp_path):
         async with ClientSession(reader, writer, read_timeout_seconds=timedelta(seconds=15)) as session:
             await session.initialize()
             names = {tool.name for tool in (await session.list_tools()).tools}
-            assert names == {"list_capabilities", "submit_text", "query_knowledge", "submit_image", "submit_audio", "submit_batch", "get_task", "cancel_task", "list_tasks"}
+            assert names == {"list_capabilities", "submit_text", "query_knowledge", "submit_image", "submit_audio", "submit_vision", "submit_document", "submit_speech", "submit_batch", "get_task", "cancel_task", "list_tasks"}
             caps = unpack(await session.call_tool("list_capabilities"))
             assert "ds" in caps["models"]
             result = unpack(await session.call_tool("submit_batch", {"tasks": [{"kind": "text", "prompt": "task one"}, {"kind": "text", "model": "gt", "prompt": "task two"}]}))
@@ -32,6 +32,21 @@ async def test_real_stdio_task_lifecycle(settings, tmp_path):
             assert knowledge["task"]["kind"] == "knowledge" and knowledge["task"]["model_alias"] == "gk"
             answer = unpack(await session.call_tool("get_task", {"task_id": knowledge["task"]["task_id"], "wait_seconds": 2}))["task"]
             assert answer["state"] == "succeeded" and answer["result"]["live_search"] is False
+            from pypdf import PdfWriter
+            pdf = settings.allowed_input_dirs[0] / "stdio.pdf"
+            pdf_writer = PdfWriter(); pdf_writer.add_blank_page(100, 100)
+            with pdf.open("wb") as handle:
+                pdf_writer.write(handle)
+            image = settings.allowed_input_dirs[0] / "stdio.png"
+            image.write_bytes(b"offline image")
+            for tool, arguments, kind, alias in [
+                ("submit_vision", {"file_paths": [str(image)], "prompt": "describe"}, "vision", "gv"),
+                ("submit_document", {"file_path": str(pdf)}, "document", "gd"),
+                ("submit_speech", {"text": "Hello", "voice": "Kore", "style": "warm"}, "speech", "gs")]:
+                accepted = unpack(await session.call_tool(tool, arguments))
+                assert accepted["ok"] and accepted["task"]["kind"] == kind and accepted["task"]["model_alias"] == alias
+                done = unpack(await session.call_tool("get_task", {"task_id": accepted["task"]["task_id"], "wait_seconds": 2}))
+                assert done["task"]["state"] == "succeeded"
             new = unpack(await session.call_tool("submit_text", {"model": "ds", "prompt": "cancel me"}))
             cancelled = unpack(await session.call_tool("cancel_task", {"task_id": new["task"]["task_id"]}))
             assert cancelled["task"]["state"] == "cancelled"
@@ -45,6 +60,6 @@ async def test_production_server_handshake_without_keys(settings, tmp_path):
     async with stdio_client(params) as (reader, writer):
         async with ClientSession(reader, writer, read_timeout_seconds=timedelta(seconds=15)) as session:
             await session.initialize()
-            assert len((await session.list_tools()).tools) == 9
+            assert len((await session.list_tools()).tools) == 12
             result = unpack(await session.call_tool("get_task", {"task_id": "nonexistent"}))
             assert result["error"]["code"] == "unknown_task"

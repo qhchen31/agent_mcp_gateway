@@ -1,4 +1,6 @@
 import base64
+import io
+import wave
 from pathlib import Path
 from uuid import uuid4
 
@@ -83,7 +85,7 @@ class FilePolicy:
                 raise AgentError("file_too_large", "Input exceeds max_input_file_bytes")
         except OSError:
             raise AgentError("invalid_file", "Input file cannot be accessed") from None
-        mime = (IMAGE_MIMES if media == "image" else AUDIO_MIMES).get(path.suffix.lower())
+        mime = {"image": IMAGE_MIMES, "audio": AUDIO_MIMES, "document": {".pdf": "application/pdf"}}.get(media, {}).get(path.suffix.lower())
         if not mime:
             raise AgentError("unsupported_file", "File extension is not supported for this capability")
         return path, mime
@@ -114,3 +116,70 @@ class FilePolicy:
         with path.open("xb") as handle:
             handle.write(data)
         return {"path": str(path), "mime_type": mime, "bytes": len(data)}
+
+    def prepare_pdf(self, filename, pages=None):
+        from pypdf import PdfReader, PdfWriter
+        data, _, _ = self.read(filename, "document")
+        try:
+            reader = PdfReader(io.BytesIO(data), strict=True)
+            if reader.is_encrypted:
+                raise AgentError("invalid_pdf", "Encrypted PDFs are not accepted")
+            count = len(reader.pages)
+            selected = list(range(1, count + 1)) if pages is None else list(pages)
+            if not selected or len(selected) > self.settings.max_pdf_pages:
+                raise AgentError("pdf_page_limit", "Select between 1 and max_pdf_pages pages; automatic splitting is disabled")
+            if len(set(selected)) != len(selected) or any(p < 1 or p > count for p in selected):
+                raise AgentError("invalid_pages", "Use unique 1-based page numbers within the PDF")
+            writer = PdfWriter()
+            for number in selected:
+                writer.add_page(reader.pages[number - 1])
+            # Drop document-level attachments, metadata and active navigation.
+            writer.remove_links()
+            buffer = io.BytesIO()
+            writer.write(buffer)
+            encoded = buffer.getvalue()
+            if len(encoded) > self.settings.max_input_file_bytes:
+                raise AgentError("file_too_large", "Selected PDF exceeds max_input_file_bytes")
+            return encoded, selected, count
+        except AgentError:
+            raise
+        except Exception:
+            raise AgentError("invalid_pdf", "PDF cannot be parsed or selected pages cannot be read") from None
+
+    @staticmethod
+    def validate_voice(voice):
+        voices = {"Zephyr", "Puck", "Charon", "Kore", "Fenrir", "Leda", "Orus", "Aoede", "Callirrhoe", "Autonoe",
+            "Enceladus", "Iapetus", "Umbriel", "Algieba", "Despina", "Erinome", "Algenib", "Rasalgethi", "Laomedeia",
+            "Achernar", "Alnilam", "Schedar", "Gacrux", "Pulcherrima", "Achird", "Zubenelgenubi", "Vindemiatrix", "Sadachbia", "Sadaltager", "Sulafat"}
+        if voice not in voices:
+            raise AgentError("invalid_voice", "Only supported prebuilt studio voices are accepted")
+
+    def save_document(self, text):
+        return self.save_artifact(text.encode("utf-8"), ".md", "text/markdown; charset=utf-8")
+
+    def save_artifact(self, data, suffix, mime):
+        if not data or len(data) > self.settings.max_response_bytes:
+            raise AgentError("upstream_format", "Artifact is empty or exceeds max_response_bytes")
+        self.output.mkdir(parents=True, exist_ok=True)
+        path = self.output / (uuid4().hex + suffix)
+        with path.open("xb") as handle:
+            handle.write(data)
+        return {"path": str(path), "mime_type": mime, "bytes": len(data)}
+
+    def save_audio(self, encoded, mime):
+        if mime not in {"audio/wav", "audio/x-wav", "audio/wave"}:
+            raise AgentError("upstream_format", "Expected non-streaming WAV audio from Gemini 3.8 TTS")
+        try:
+            data = base64.b64decode(encoded, validate=True)
+            if len(data) > self.settings.max_response_bytes or data[:4] != b"RIFF" or data[8:12] != b"WAVE":
+                raise ValueError()
+            with wave.open(io.BytesIO(data), "rb") as audio:
+                channels, width, rate, frames = audio.getnchannels(), audio.getsampwidth(), audio.getframerate(), audio.getnframes()
+                if channels != 1 or width != 2 or rate != 24000 or frames <= 0:
+                    raise ValueError()
+                if len(audio.readframes(frames)) != frames * channels * width:
+                    raise ValueError()
+        except Exception:
+            raise AgentError("upstream_format", "Gemini returned invalid, truncated or unsupported WAV audio") from None
+        return {**self.save_artifact(data, ".wav", "audio/wav"), "sample_rate": rate,
+            "channels": channels, "duration_seconds": round(frames / rate, 3)}

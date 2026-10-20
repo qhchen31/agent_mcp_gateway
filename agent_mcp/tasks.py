@@ -31,6 +31,10 @@ class TaskRequest(StrictModel):
     reference_paths: list[str] = Field(default_factory=list, max_length=16)
     file_path: str | None = None
     max_output_tokens: int | None = Field(default=None, ge=1)
+    file_paths: list[str] = Field(default_factory=list, max_length=16)
+    pages: list[int] | None = Field(default=None, max_length=1000)
+    voice: str | None = Field(default=None, min_length=1)
+    style: str | None = Field(default=None, max_length=1000)
 
 
 @dataclass
@@ -81,11 +85,11 @@ class TaskManager:
             raise AgentError("invalid_prompt", "Prompt must not be empty")
         if request.max_output_tokens and request.max_output_tokens > self.settings.max_output_tokens:
             raise AgentError("token_limit", "Requested tokens exceed the configured ceiling")
-        if request.kind == "image" and request.max_output_tokens is not None:
+        if request.kind in ("image", "speech") and request.max_output_tokens is not None:
             raise AgentError("invalid_request", "This capability has no text token limit parameter")
         if request.kind != "image" and request.reference_paths:
             raise AgentError("invalid_request", "Reference images are only accepted for image tasks")
-        if request.kind != "audio" and request.file_path:
+        if request.kind not in ("audio", "document") and request.file_path:
             raise AgentError("invalid_request", "Audio paths are only accepted for audio tasks")
         if request.kind == "image" and request.context:
             raise AgentError("invalid_request", "Put image instructions in prompt")
@@ -95,6 +99,32 @@ class TaskManager:
             if not request.file_path:
                 raise AgentError("invalid_request", "Audio file_path is required")
             self.files.validate(request.file_path, "audio")
+        if request.kind != "vision" and request.file_paths:
+            raise AgentError("invalid_request", "file_paths is only accepted for vision tasks")
+        if request.kind != "document" and request.pages is not None:
+            raise AgentError("invalid_request", "pages is only accepted for document tasks")
+        if request.kind != "speech" and (request.voice is not None or request.style is not None):
+            raise AgentError("invalid_request", "voice/style are only accepted for speech tasks")
+        if request.kind == "vision":
+            if not 1 <= len(request.file_paths) <= self.settings.max_vision_images:
+                raise AgentError("invalid_request", "Vision image count exceeds configured bounds")
+            for path in request.file_paths:
+                self.files.validate(path, "image")
+        if request.kind == "document":
+            if not request.file_path:
+                raise AgentError("invalid_request", "PDF file_path is required")
+            self.files.prepare_pdf(request.file_path, request.pages)
+        if request.kind == "speech":
+            if len(request.prompt) > self.settings.max_speech_characters:
+                raise AgentError("speech_too_large", "Speech text exceeds max_speech_characters; split explicitly")
+            if request.context or request.system_prompt != TaskRequest.model_fields["system_prompt"].default:
+                raise AgentError("invalid_request", "Speech uses verbatim prompt and separate style; no context/system_prompt")
+            self.files.validate_voice(request.voice or self.settings.speech_voice)
+            style = request.style if request.style is not None else self.settings.speech_style
+            # Conservative UTF-8 byte bound; avoids extra countTokens requests and
+            # leaves room for voice/config overhead under the 8192-token model input.
+            if len((request.prompt + style).encode("utf-8")) > 8000:
+                raise AgentError("speech_too_large", "Speech text/style exceeds conservative model input budget")
         return spec
 
     def prune(self):

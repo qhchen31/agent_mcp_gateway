@@ -26,8 +26,11 @@ async def self_test(settings, args):
     manager = TaskManager(settings, Providers(settings, files, Credentials(settings.credential_service)), files)
     manager.start()
     try:
-        request = TaskRequest(kind=kind, model=alias, prompt=args.prompt, file_path=args.file,
-                              reference_paths=args.reference or [], max_output_tokens=args.max_output_tokens)
+        from .server import DOCUMENT_PROMPT
+        prompt = args.prompt if args.prompt is not None else (DOCUMENT_PROMPT if kind == "document" else "Reply with OK.")
+        request = TaskRequest(kind=kind, model=alias, prompt=prompt, file_path=args.file,
+                              reference_paths=args.reference or [], max_output_tokens=args.max_output_tokens,
+                              file_paths=args.image or [], pages=args.pages, voice=args.voice, style=args.style)
         task = manager.submit([request])[0]
         while task["state"] not in TERMINAL:
             await asyncio.sleep(0.2)
@@ -50,11 +53,15 @@ def main():
         command_parser.add_argument("provider", choices=sorted(SUPPORTED))
     live = commands.add_parser("self-test", help="Make ONE real paid task using a configured alias")
     live.add_argument("--model", help="Configured alias; omitted uses the default for --kind (text by default)")
-    live.add_argument("--kind", choices=["text", "knowledge", "image", "audio"])
-    live.add_argument("--prompt", default="Reply with OK.")
-    live.add_argument("--file", help="Allowed absolute audio path")
+    live.add_argument("--kind", choices=["text", "knowledge", "image", "audio", "vision", "document", "speech"])
+    live.add_argument("--prompt", help="Task text; document defaults to faithful extraction; speech reads this verbatim")
+    live.add_argument("--file", help="Allowed absolute audio/PDF path")
     live.add_argument("--reference", action="append", help="Allowed absolute image path; repeat for multiple images")
     live.add_argument("--max-output-tokens", type=int, help="Lower the text/audio output budget for small checks")
+    live.add_argument("--image", action="append", help="Allowed absolute image path for vision; repeat for multiple images")
+    live.add_argument("--pages", type=int, nargs="+", help="1-based PDF page numbers in upload order")
+    live.add_argument("--voice", help="Prebuilt speech voice")
+    live.add_argument("--style", help="Speech delivery style, separate from verbatim --prompt")
     args = parser.parse_args()
     try:
         if args.command == "init":

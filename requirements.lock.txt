@@ -1,4 +1,5 @@
 # Tested on Windows, Python 3.12. Includes offline test dependencies.
+pypdf==6.21.1
 annotated-types==0.8.0
 anyio==4.15.1
 attrs==26.1.0

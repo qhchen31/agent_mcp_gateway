@@ -118,6 +118,51 @@ async def test_response_size_bound(settings, files):
 def test_only_supported_endpoints():
     assert set(BASE_URLS) == {"deepseek", "gemini"}
 
+@pytest.mark.parametrize("kind,alias,edit", [
+    ("text", "gt", False), ("knowledge", "gk", False),
+    ("audio", "ga", False), ("image", "gi", False), ("image", "gi", True)])
+async def test_gemini_wire_payload_omits_deprecated_generation_parameters(settings, files, kind, alias, edit):
+    """Google's October 2026 notice covers both SDK and REST spellings."""
+    forbidden = {"thinking_budget", "thinkingBudget", "temperature", "top_p", "topP", "top_k", "topK"}
+    def check_fields(value):
+        if isinstance(value, dict):
+            assert not forbidden.intersection(value), "Deprecated Gemini parameter sent"
+            for child in value.values():
+                check_fields(child)
+        elif isinstance(value, list):
+            for child in value:
+                check_fields(child)
+
+    request = TaskRequest(kind=kind, model=alias, prompt="small task", max_output_tokens=None if kind == "image" else 128)
+    if kind == "audio":
+        audio = settings.allowed_input_dirs[0] / "sample.wav"
+        audio.write_bytes(b"sample audio")
+        request.file_path = str(audio)
+    if edit:
+        image = settings.allowed_input_dirs[0] / "reference.png"
+        image.write_bytes(b"sample image")
+        request.reference_paths = [str(image)]
+    # This shared configuration option must remain exclusive to the DeepSeek payload.
+    settings.models[alias].thinking_mode = "enabled"
+    calls = []
+    def handler(wire_request):
+        body = json.loads(wire_request.content)
+        calls.append(body)
+        check_fields(body)
+        assert "thinking" not in body and "thinkingConfig" not in body["generationConfig"]
+        if kind == "image":
+            assert set(body["generationConfig"]) == {"responseModalities", "imageConfig"}
+            parts = [{"inlineData": {"mimeType": "image/png", "data": PNG}}]
+        else:
+            assert body["generationConfig"] == {"maxOutputTokens": 128}
+            parts = [{"text": "answer"}]
+        assert ("tools" in body) is (kind == "knowledge")
+        return httpx.Response(200, json={"candidates": [{"finishReason": "STOP", "content": {"parts": parts}}]})
+    provider, client = adapter(settings, files, handler)
+    async with client:
+        await provider.execute(request, settings.models[alias])
+    assert len(calls) == 1
+
 @pytest.mark.parametrize("kind,enabled,grounded", [
     ("knowledge", True, True), ("knowledge", True, False),
     ("knowledge", False, False), ("text", True, False)])

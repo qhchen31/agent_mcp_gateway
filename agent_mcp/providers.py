@@ -130,7 +130,13 @@ class Providers:
 
     async def gemini(self, request, spec):
         parts = [{"text": self.user_text(request)}]
+        pdf_pages, pdf_count = None, None
         media = [(p, "image") for p in request.reference_paths]
+        media.extend((p, "image") for p in request.file_paths)
+        if request.kind == "document":
+            pdf, pdf_pages, pdf_count = self.files.prepare_pdf(request.file_path, request.pages)
+            parts[0]["text"] += "\nKeep uploaded page order. Label each page using this original 1-based page mapping: " + json.dumps(pdf_pages) + ". Return only the requested document content, without discussion of these instructions."
+            parts.append({"inlineData": {"mimeType": "application/pdf", "data": base64.b64encode(pdf).decode("ascii")}})
         if request.kind == "audio":
             media.append((request.file_path, "audio"))
         for filename, kind in media:
@@ -141,11 +147,21 @@ class Providers:
             # Text token budgets do not cap generated image dimensions or image cost.
             config = {"responseModalities": ["TEXT", "IMAGE"],
                 "imageConfig": {"imageSize": spec.image_size, "aspectRatio": spec.image_aspect_ratio}}
+        if request.kind == "speech":
+            parts = [{"text": request.prompt}]
+            style = request.style if request.style is not None else self.settings.speech_style
+            if style:
+                parts[0]["speech_metadata"] = {"style": style}
+            config = {"responseModalities": ["AUDIO"], "maxOutputTokens": self.settings.speech_max_output_tokens,
+                "speechConfig": {"voiceConfig": {"voice": request.voice or self.settings.speech_voice}}}
+        elif request.kind in ("vision", "document"):
+            config["responseModalities"] = ["TEXT"]
+            config["thinkingConfig"] = {"thinkingLevel": self.settings.understanding_thinking_level.upper()}
         body = {"contents": [{"role": "user", "parts": parts}], "generationConfig": config}
         search_enabled = request.kind == "knowledge" and self.settings.knowledge_search_enabled
         if search_enabled:
             body["tools"] = [{"google_search": {}}]
-        if request.system_prompt:
+        if request.system_prompt and request.kind != "speech":
             body["systemInstruction"] = {"parts": [{"text": request.system_prompt}]}
         encoded = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         if len(encoded) > self.settings.gemini_max_request_bytes:
@@ -160,6 +176,8 @@ class Providers:
         finish = candidate.get("finishReason")
         if finish not in ("STOP", "MAX_TOKENS"):
             raise AgentError("upstream_incomplete", "Gemini response was filtered or incomplete")
+        if request.kind == "speech" and finish != "STOP":
+            raise AgentError("upstream_incomplete", "Speech output was truncated; no complete audio artifact saved")
         text_parts, artifacts = [], []
         for part in (candidate.get("content") or {}).get("parts", []):
             if part.get("thought"):
@@ -169,11 +187,22 @@ class Providers:
             inline = part.get("inlineData")
             if inline and request.kind == "image":
                 artifacts.append(self.files.save_image(inline.get("data"), inline.get("mimeType")))
+            if inline and request.kind == "speech":
+                if artifacts:
+                    raise AgentError("upstream_format", "Expected one complete WAV response")
+                artifacts.append(self.files.save_audio(inline.get("data"), inline.get("mimeType")))
         if request.kind == "image" and not artifacts:
             raise AgentError("empty_result", "Gemini returned no generated image")
-        if request.kind != "image" and not text_parts:
+        if request.kind == "speech" and not artifacts:
+            raise AgentError("empty_result", "Gemini returned no generated audio")
+        if request.kind not in ("image", "speech") and not text_parts:
             raise AgentError("empty_result", "Gemini returned no final text")
         result = self.result("\n".join(text_parts), data.get("modelVersion", spec.model), data.get("usageMetadata") or {}, finish, artifacts, finish == "MAX_TOKENS")
+        if request.kind == "document":
+            artifact = self.files.save_document(result["text"])
+            result.update(text=result["text"][:self.settings.document_preview_characters], artifacts=[artifact],
+                preview_truncated=len(result["text"]) > self.settings.document_preview_characters,
+                pages=pdf_pages, source_page_count=pdf_count, complete=finish == "STOP")
         if request.kind == "knowledge":
             grounding = candidate.get("groundingMetadata") or {}
             sources = [chunk["web"] for chunk in grounding.get("groundingChunks", []) if chunk.get("web")]
