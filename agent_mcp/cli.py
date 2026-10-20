@@ -3,17 +3,15 @@ import asyncio
 import getpass
 import json
 import logging
-import shutil
 import sys
 import warnings
 from pathlib import Path
+from importlib.resources import files as package_files
 
 from .config import SUPPORTED, load_settings
 from .providers import Providers
 from .security import AgentError, Credentials, FilePolicy
 from .tasks import TERMINAL, TaskManager, TaskRequest
-
-ROOT = Path(__file__).resolve().parent.parent
 
 
 async def self_test(settings, args):
@@ -42,12 +40,13 @@ async def self_test(settings, args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Local agent MCP; secrets live in Windows Credential Manager")
-    parser.add_argument("--config", type=Path, default=ROOT / "config.json")
+    parser = argparse.ArgumentParser(description="Local agent MCP; secrets live in the OS credential store")
+    parser.add_argument("--config", type=Path, default=Path.cwd() / "config.json")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("init", help="Create config.json from the example without overwriting existing configuration")
     commands.add_parser("serve", help="Run MCP over stdio; stdout is reserved for protocol messages")
     commands.add_parser("doctor", help="Validate configuration and check the credential backend without reading keys")
+    commands.add_parser("install-plugin", help="Install a local Codex plugin using this Python and configuration; no keys are copied")
     for command in ("set-key", "delete-key"):
         command_parser = commands.add_parser(command)
         command_parser.add_argument("provider", choices=sorted(SUPPORTED))
@@ -67,9 +66,15 @@ def main():
         if args.command == "init":
             if args.config.exists():
                 raise AgentError("config_exists", "Configuration already exists; edit it directly")
-            with args.config.open("xb") as target, (ROOT / "config.example.json").open("rb") as source:
-                shutil.copyfileobj(source, target)
-            settings = load_settings(args.config)
+            data = json.loads(package_files("agent_mcp").joinpath("config.example.json").read_text(encoding="utf-8"))
+            base = args.config.resolve().parent
+            data["allowed_input_dirs"] = [str(base / "inputs"), str(base / "outputs")]
+            data["output_dir"] = str(base / "outputs")
+            from .config import Settings
+            settings = Settings.model_validate(data)
+            args.config.parent.mkdir(parents=True, exist_ok=True)
+            with args.config.open("x", encoding="utf-8") as target:
+                target.write(settings.model_dump_json(indent=2) + "\n")
             for directory in [*settings.allowed_input_dirs, settings.output_dir]:
                 directory.mkdir(parents=True, exist_ok=True)
             print("Created configuration and media directories. Set keys with set-key.")
@@ -84,7 +89,7 @@ def main():
                 warnings.simplefilter("error", getpass.GetPassWarning)
                 value = getpass.getpass(f"{args.provider} API key (hidden): ")
             credentials.set(args.provider, value)
-            print("Credential stored in Windows Credential Manager.")
+            print("Credential stored in the OS credential store. The MCP server loads it automatically.")
         elif args.command == "delete-key":
             credentials.delete(args.provider)
             print("Credential deleted.")
@@ -95,6 +100,9 @@ def main():
                 "output_dir": str(settings.output_dir)}, indent=2))
         elif args.command == "self-test":
             return asyncio.run(self_test(settings, args))
+        elif args.command == "install-plugin":
+            from .plugin import install_plugin
+            install_plugin(args.config)
         elif args.command == "serve":
             logging.basicConfig(level=logging.INFO, stream=sys.stderr, format="%(levelname)s %(message)s")
             logging.getLogger("httpx").setLevel(logging.WARNING)

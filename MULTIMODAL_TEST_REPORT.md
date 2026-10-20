@@ -15,6 +15,8 @@
 
 读图/PDF现在默认LOW思考（understanding_thinking_level可配置）；TTS独立输出预算、不发送思考配置；没有恢复thinkingBudget或自定义采样参数。不能从一次小样本推断所有OCR、长文、语言与音色的质量。
 
-离线验证68项全部通过，覆盖既有48项、PDF截页顺序及原页号、超页/空页/重复/越界/加密/损坏、文本预览与模型截断区分、读图多图输入、TTS正文与style分离、完整WAV不重复加头、格式与帧长度检查、输入限额、参数混用拒绝、12个工具发现和新增单项接口调用。doctor确认配置有效、WinVaultKeyring后端且未读取密钥。
+整合远程 Linux/插件支持后，离线验证77项全部通过，覆盖既有48项、PDF截页顺序及原页号、超页/空页/重复/越界/加密/损坏、文本预览与模型截断区分、读图多图输入、TTS正文与style分离、完整WAV不重复加头、格式与帧长度检查、输入限额、参数混用拒绝、12个工具发现和新增单项接口调用。doctor确认配置有效、WinVaultKeyring后端且未读取密钥。
+
+已保留远程 Linux Secret Service、可移植初始化、插件安装与CI功能；根目录和包内配置模板都包含新增路由。当前真实验收环境为Windows，未宣称本次做过Linux在线实测。
 
 Codex注册仅追加submit_vision、submit_document、submit_speech到现有agent-mcp允许列表，新增提交仍继承prompt。保留现有auto_review、其他服务和四个管理工具的直接放行规则；原配置已在用户目录备份。当前会话工具目录可能仍为旧版，需要重启或重连。

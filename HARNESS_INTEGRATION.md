@@ -1,3 +1,7 @@
+# Linux / Codex plugin
+
+Linux users: start with [LINUX_SETUP.md](LINUX_SETUP.md). It documents portable initialization, Secret Service credentials, plugin installation, and Linux launch parameters. The Windows examples below remain applicable on Windows.
+
 # 桌面 Harness Agent 接入手册
 
 读者是负责配置桌面 agent harness、随后通过 MCP 委派任务的 agent。本文包含本机注册、调用与验证所需信息；无须读取历史聊天。仓库：https://github.com/qhchen31/agent_mcp_gateway 。
@@ -8,9 +12,9 @@
 
 本机已安装位置：`E:\Project\Script\agent_mcp`。运行解释器：`E:\Project\Script\agent_mcp\.venv\Scripts\python.exe`。网关配置：`E:\Project\Script\agent_mcp\config.json`。
 
-要求 Windows、Python 3.11+，当前验证环境为 Python 3.12。必须在保存凭据的同一 Windows 用户下启动服务。DeepSeek/Gemini API key 由 `keyring` 的 `WinVaultKeyring` 从 Windows 凭据管理器读取，默认 service 为 `local-agent-mcp`，用户名为 `deepseek` / `gemini`。harness 配置与工具参数均不接受 API key，不要读取、复制或导出已保存的密钥。
+要求 Python 3.11+，本机使用 Windows/Python 3.12。必须在保存凭据的同一 Windows 用户下启动服务。Linux 桌面另支持 Secret Service，需在同一已解锁的 D-Bus 会话启动，部署细节见 LINUX_SETUP.md。DeepSeek/Gemini API key 由 `keyring` 的 `WinVaultKeyring` 从 Windows 凭据管理器读取，默认 service 为 `local-agent-mcp`，用户名为 `deepseek` / `gemini`。harness 配置与工具参数均不接受 API key，不要读取、复制或导出已保存的密钥。
 
-当前实现不适用于直接放进 WSL、Linux/macOS、容器、不同 Windows 账户或仅支持远程 MCP 的云端 harness；这些环境的文件系统与凭据后端不匹配。网关需要出站 HTTPS 访问 `api.deepseek.com`、`generativelanguage.googleapis.com`，使用两家官方 API。
+当前实现支持 Windows 和具有可用 Secret Service 的 Linux 桌面；Windows 路径及凭据不能直接复用到 WSL、Linux、容器、其他账户或云端。macOS 后端与远程 HTTP MCP 未实现。网关需要出站 HTTPS 访问 `api.deepseek.com`、`generativelanguage.googleapis.com`，使用两家官方 API。
 
 “子 agent”是一次独立模型请求：它获得显式提供的任务、文本上下文及媒体，不继承父 agent 历史、文件访问、终端或工具执行权限。知识接口允许 Gemini 自带 Google Search；其他任务不附加搜索工具。
 
