@@ -28,6 +28,8 @@ class ModelSpec(StrictModel):
 
 
 class Settings(StrictModel):
+    http2_enabled: bool = True
+    gemini_audio_upload_threshold_bytes: int = Field(default=1048576, ge=0)
     max_vision_images: int = Field(default=8, ge=1, le=16)
     max_pdf_pages: int = Field(default=20, ge=1, le=1000)
     max_speech_characters: int = Field(default=2000, ge=1)

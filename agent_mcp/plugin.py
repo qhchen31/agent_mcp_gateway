@@ -18,7 +18,7 @@ def build_plugin(config: Path, python: str) -> Path:
     plugin = root / "plugins" / NAME
     manifest_dir = plugin / ".codex-plugin"
     manifest_dir.mkdir(parents=True, exist_ok=True)
-    manifest = {"name": NAME, "version": "0.3.0", "description": "Delegate independent tasks to DeepSeek and Gemini through a local MCP gateway",
+    manifest = {"name": NAME, "version": "0.3.1", "description": "Delegate independent tasks to DeepSeek and Gemini through a local MCP gateway",
                 "mcpServers": "./.mcp.json"}
     # Write only known public metadata and launch paths. Never copy config or credentials.
     (manifest_dir / "plugin.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")

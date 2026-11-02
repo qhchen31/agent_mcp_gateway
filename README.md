@@ -1,4 +1,4 @@
-# 本地 Agent MCP（0.3）
+# 本地 Agent MCP（0.3.1）
 
 供 Codex 等本地 harness 委派独立任务，父 agent 负责拆分、提供上下文与整合。子模型不继承父 agent 的历史、终端或工具权限。
 
@@ -87,7 +87,9 @@ Set-Location 'E:\Project\Script\agent_mcp'
 
 生成图片随机命名，保存到 outputs，不覆盖文件。返回绝对路径；编辑时通过 reference_paths 传入已有图片。任务记录过期不会删除图片，由用户管理磁盘空间。
 
-第一版不自动下载 URL、分段长录音、保留上游会话或执行代码。Gemini 使用内联媒体，完整 base64 JSON 最多 20 MB。
+不自动下载 URL、分段长录音、保留上游会话或执行代码。小媒体使用内联数据，完整 base64 JSON 最多 20 MB。0.3.1 起，大于 gemini_audio_upload_threshold_bytes（默认1 MiB）的音频改用官方 Files API：按服务器粒度上传原始字节，再以文件引用发起一次生成；完成、失败或取消时尝试删除临时文件。上传不会切分音频语义，不改变原文件。
+
+网络默认启用HTTP/2协商（http2_enabled，可关闭）；不支持时正常协商HTTP/1.1，保留证书验证。TLS错误分别返回tls_error/tls_certificate，不自动重发生成请求。音频成功结果含audio_transport=files_api及remote_file_deleted；删除失败会告警，文件受平台保留政策约束（官方当前为48小时）。连接诊断记录见 AUDIO_CONNECTION_REPORT.md。
 
 按操作系统显式选择 WinVaultKeyring 或 Linux SecretService.Keyring，不使用自动选择的第三方/明文后端，也不回退明文配置/环境变量。日志不记录密钥或请求/响应全文；完成后释放原始请求对象。结果仍可能包含任务内容。凭据管理器解决误提交风险，不能隔离同用户下有脚本执行权限的进程。
 

@@ -38,6 +38,8 @@ pages 为不重复的 1-based 原页码数组，按数组顺序上传；省略�
 
 `submit_audio(file_path, prompt, max_output_tokens=null, model=null)`：保留既有转录／理解接口，默认 gemini-audio → gemini-3.8-flash。输入允许目录内的音频，输出文本。
 
+0.3.1新增大音频官方Files API上传：超过1MiB（阈值可配置）时不再塞入Base64生成请求，先按服务端粒度上传，再用fileData引用；成功、失败或取消后尝试删除远端临时文件。仍然一次完整音频、一次生成，没有自动分段转录或生成重试。成功结果audio_transport=files_api，remote_file_deleted表示清理状态。未能删除的文件受平台保留期限约束（当前48小时）。
+
 `submit_speech(text, voice=null, style=null, model=null)`：默认 gemini-speech → gemini-3.8-flash-tts。单人、非流式朗读，不做模型问答或自动改写；语气指令放独立 style，不能拼到 text。文本中的模型支持的发声标签仍可能影响朗读，不将其解释为普通可听文字保证。
 
 ```json

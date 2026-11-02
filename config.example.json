@@ -18,7 +18,10 @@
   "max_input_file_bytes": 12582912,
   "max_response_bytes": 67108864,
   "gemini_max_request_bytes": 20000000,
-  "allowed_input_dirs": ["./inputs", "./outputs"],
+  "allowed_input_dirs": [
+    "./inputs",
+    "./outputs"
+  ],
   "output_dir": "./outputs",
   "credential_service": "local-agent-mcp",
   "default_models": {
@@ -97,5 +100,7 @@
   "speech_voice": "Kore",
   "speech_style": "",
   "document_preview_characters": 2000,
-  "understanding_thinking_level": "low"
+  "understanding_thinking_level": "low",
+  "http2_enabled": true,
+  "gemini_audio_upload_threshold_bytes": 1048576
 }

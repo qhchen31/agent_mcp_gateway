@@ -2,6 +2,10 @@ import asyncio
 import base64
 import json
 import random
+import re
+import ssl
+import logging
+from urllib.parse import urlsplit
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 
@@ -11,12 +15,14 @@ from .config import ModelSpec, Settings
 from .security import AgentError, Credentials, FilePolicy
 
 BASE_URLS = {"deepseek": "https://api.deepseek.com", "gemini": "https://generativelanguage.googleapis.com/v1beta"}
+log = logging.getLogger(__name__)
 
 
 class Providers:
     def __init__(self, settings: Settings, files: FilePolicy, credentials: Credentials, client: httpx.AsyncClient | None = None):
         self.settings, self.files, self.credentials = settings, files, credentials
-        self.client = client or httpx.AsyncClient(timeout=None, follow_redirects=False)
+        self.client = client or httpx.AsyncClient(http2=settings.http2_enabled,
+            timeout=httpx.Timeout(None, connect=20, write=30, pool=20), follow_redirects=False)
         self.owns_client = client is None
 
     async def close(self):
@@ -36,13 +42,41 @@ class Providers:
                     pass
         return max(0, min(delay, self.settings.max_retry_delay_seconds))
 
-    async def post(self, provider: str, route: str, **kwargs) -> dict:
+    @staticmethod
+    def tls_error(exc):
+        current, seen = exc, set()
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            if isinstance(current, ssl.SSLCertVerificationError):
+                return AgentError("tls_certificate", "TLS certificate verification failed; verify the trusted CA/network configuration. Not retried")
+            if isinstance(current, ssl.SSLError) and not isinstance(current, (ssl.SSLWantReadError, ssl.SSLWantWriteError)):
+                return AgentError("tls_error", "TLS transport failed; upstream completion is uncertain. Check network/proxy stability; certificate verification remains enabled. Not retried")
+            current = current.__cause__ or current.__context__
+        return AgentError("network", "Network request failed; request was not automatically retried")
+
+    @staticmethod
+    def official_file_url(url):
+        try:
+            parsed = urlsplit(url)
+            port = parsed.port
+        except ValueError:
+            raise AgentError("upstream_format", "Gemini returned an invalid file URL") from None
+        if (parsed.scheme != "https" or parsed.hostname != "generativelanguage.googleapis.com"
+                or port not in (None, 443) or parsed.username or parsed.password or parsed.fragment
+                or not parsed.path.startswith(("/upload/v1beta/files", "/v1beta/files/"))):
+            raise AgentError("upstream_format", "Gemini returned an unexpected file URL")
+        return url
+
+    async def post(self, provider: str, route: str, method="POST", raw_response=False, retry_rate_limit=True, **kwargs) -> dict:
         # No API key appears in a URL, config file, tool argument, or error message.
         key = await asyncio.to_thread(self.credentials.get, provider)
         headers = {"x-goog-api-key": key} if provider == "gemini" else {"Authorization": "Bearer " + key}
-        for attempt in range(self.settings.rate_limit_retries + 1):
+        headers.update(kwargs.pop("headers", {}))
+        url = self.official_file_url(route) if route.startswith("https://") and provider == "gemini" else BASE_URLS[provider] + route
+        retries = self.settings.rate_limit_retries if retry_rate_limit else 0
+        for attempt in range(retries + 1):
             try:
-                async with self.client.stream("POST", BASE_URLS[provider] + route, headers=headers, **kwargs) as response:
+                async with self.client.stream(method, url, headers=headers, **kwargs) as response:
                     status = response.status_code
                     if status == 429:
                         # Billing/quota failures also use HTTP 429. They cannot be repaired by retries.
@@ -66,7 +100,7 @@ class Providers:
                             # Only an allowlisted identifier is exposed, never an upstream message.
                             reason = error["code"] if error.get("code") in quota_codes else "insufficient_quota"
                             raise AgentError("quota_exceeded", f"{provider} API returned {reason}; check API credits and account/project limits. Not retried")
-                    if status == 429 and attempt < self.settings.rate_limit_retries:
+                    if status == 429 and attempt < retries:
                         delay = self.retry_delay(response.headers.get("retry-after"), attempt)
                     elif status >= 300:
                         code = {401: "authentication", 403: "access_denied", 429: "rate_limit"}.get(status, "upstream_http")
@@ -77,6 +111,10 @@ class Providers:
                             buffer.extend(chunk)
                             if len(buffer) > self.settings.max_response_bytes:
                                 raise AgentError("response_too_large", "Upstream response exceeds max_response_bytes")
+                        if raw_response:
+                            return {"headers": dict(response.headers), "body": bytes(buffer)}
+                        if not buffer:
+                            return {}
                         try:
                             result = json.loads(buffer)
                         except (ValueError, UnicodeError):
@@ -87,8 +125,8 @@ class Providers:
                 await asyncio.sleep(delay)
             except httpx.TimeoutException:
                 raise AgentError("upstream_timeout", "Upstream timed out; request was not retried because completion is uncertain") from None
-            except httpx.RequestError:
-                raise AgentError("network", "Network request failed; request was not automatically retried") from None
+            except (httpx.RequestError, ssl.SSLError) as exc:
+                raise self.tls_error(exc) from None
         raise AgentError("rate_limit", "Rate limit retry budget exhausted")
 
     async def execute(self, request, spec: ModelSpec) -> dict:
@@ -128,7 +166,84 @@ class Providers:
             raise AgentError("empty_result", "DeepSeek returned no final text")
         return self.result(text, data.get("model", spec.model), data.get("usage") or {}, finish, truncated=finish == "length")
 
+    async def delete_remote_file(self, name):
+        try:
+            async with asyncio.timeout(10):
+                await self.post("gemini", "/" + name, method="DELETE")
+            return True
+        except (AgentError, TimeoutError):
+            return False
+
+    async def upload_audio(self, data, mime):
+        log.info("Gemini audio upload started bytes=%d", len(data))
+        start = await self.post("gemini", "https://generativelanguage.googleapis.com/upload/v1beta/files",
+            raw_response=True, headers={"X-Goog-Upload-Protocol": "resumable", "X-Goog-Upload-Command": "start",
+                "X-Goog-Upload-Header-Content-Length": str(len(data)), "X-Goog-Upload-Header-Content-Type": mime},
+            json={"file": {"display_name": "agent-mcp-audio"}})
+        url = self.official_file_url(start["headers"].get("x-goog-upload-url", ""))
+        try:
+            try:
+                granularity = int(start["headers"].get("x-goog-upload-chunk-granularity", "262144"))
+            except (ValueError, TypeError):
+                raise AgentError("upstream_format", "Gemini returned invalid upload chunk granularity") from None
+            if not 1 <= granularity <= 1073741824:
+                raise AgentError("upstream_format", "Gemini returned invalid upload chunk granularity")
+            for offset in range(0, len(data), granularity):
+                chunk = data[offset:offset + granularity]
+                final = offset + len(chunk) == len(data)
+                async def blocks():
+                    for position in range(0, len(chunk), 65536):
+                        yield chunk[position:position + 65536]
+                result = await self.post("gemini", url, content=blocks(), retry_rate_limit=False,
+                    headers={"Content-Type": mime, "Content-Length": str(len(chunk)), "X-Goog-Upload-Offset": str(offset),
+                        "X-Goog-Upload-Command": "upload, finalize" if final else "upload"})
+                log.info("Gemini audio upload accepted bytes=%d/%d", offset + len(chunk), len(data))
+            uploaded = result.get("file") or {}
+            if not re.fullmatch(r"files/[A-Za-z0-9_-]+", uploaded.get("name", "")):
+                raise AgentError("upstream_format", "Gemini returned an invalid uploaded file identifier")
+            return uploaded
+        except BaseException:
+            # Cancel an incomplete upload; never restart it or repeat generation automatically.
+            try:
+                async with asyncio.timeout(5):
+                    await self.post("gemini", url, headers={"X-Goog-Upload-Command": "cancel"})
+            except (AgentError, TimeoutError):
+                pass
+            raise
+
     async def gemini(self, request, spec):
+        uploaded = None
+        if request.kind == "audio":
+            path, _ = self.files.validate(request.file_path, "audio")
+            if path.stat().st_size > self.settings.gemini_audio_upload_threshold_bytes:
+                data, mime, _ = self.files.read(request.file_path, "audio")
+                uploaded = await self.upload_audio(data, mime)
+        remote_name = uploaded["name"] if uploaded else None
+        try:
+            if uploaded:
+                while uploaded.get("state") == "PROCESSING":
+                    await asyncio.sleep(1)
+                    uploaded = await self.post("gemini", "/" + remote_name, method="GET")
+                    if uploaded.get("name") != remote_name:
+                        raise AgentError("upstream_format", "Gemini returned inconsistent file metadata")
+                if uploaded.get("state") != "ACTIVE":
+                    raise AgentError("file_processing", "Gemini could not process the uploaded audio")
+                self.official_file_url(uploaded.get("uri", ""))
+                if urlsplit(uploaded["uri"]).path != "/v1beta/" + remote_name:
+                    raise AgentError("upstream_format", "Gemini returned an inconsistent file reference")
+            result = await self.gemini_content(request, spec, uploaded)
+            if request.kind == "audio":
+                result["audio_transport"] = "files_api" if uploaded else "inline"
+            return result
+        finally:
+            if remote_name:
+                cleaned = await self.delete_remote_file(remote_name)
+                if "result" in locals():
+                    result["remote_file_deleted"] = cleaned
+                if not cleaned:
+                    log.warning("Gemini temporary audio cleanup incomplete; provider retention policy applies")
+
+    async def gemini_content(self, request, spec, uploaded=None):
         parts = [{"text": self.user_text(request)}]
         pdf_pages, pdf_count = None, None
         media = [(p, "image") for p in request.reference_paths]
@@ -138,7 +253,10 @@ class Providers:
             parts[0]["text"] += "\nKeep uploaded page order. Label each page using this original 1-based page mapping: " + json.dumps(pdf_pages) + ". Return only the requested document content, without discussion of these instructions."
             parts.append({"inlineData": {"mimeType": "application/pdf", "data": base64.b64encode(pdf).decode("ascii")}})
         if request.kind == "audio":
-            media.append((request.file_path, "audio"))
+            if uploaded:
+                parts.append({"fileData": {"mimeType": uploaded["mimeType"], "fileUri": uploaded["uri"]}})
+            else:
+                media.append((request.file_path, "audio"))
         for filename, kind in media:
             data, mime, _ = self.files.read(filename, kind)
             parts.append({"inlineData": {"mimeType": mime, "data": base64.b64encode(data).decode("ascii")}})

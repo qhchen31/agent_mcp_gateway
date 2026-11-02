@@ -198,6 +198,8 @@ TTS 使用 submit_speech，参数示例 `{"text":"你好，这是测试。","voi
 
 默认只读取 inputs/outputs 中的绝对路径（含解析后的路径校验），每文件最多 12 MiB，Gemini 完整内联 JSON 最多 20 MB。图片输入 PNG/JPEG/WebP；音频支持 mp3/wav/m4a/mp4/aac/ogg/flac/webm 扩展名，实际编码仍由 API 判定。submit_image 是生成/编辑，不是任意图像分析接口；使用 submit_vision 进行图片理解。
 
+0.3.1的大音频默认走官方Files API，阈值gemini_audio_upload_threshold_bytes=1048576；设0表示所有音频都走该路径，调高阈值可继续内联。遵守服务端上传粒度、流式发送二进制，完成后发起一次fileData生成，最后尝试删除临时文件。源文件12MiB上限不变；网络失败不自动重传或重发生成。结果remote_file_deleted=false或清理告警时，远端文件可能保留至平台自动删除期限（当前48小时）。工具签名无需变更；网关重连后生效。http2_enabled=true只启用协商，不保证HTTP/2或解决所有网络故障；TLS证书校验一直开启。
+
 默认全局并发 4、每家 2、等待队列 32；按每个服务进程计算，多 harness 各自启动时不会共享限额。文本/知识执行超时 180 秒，媒体 600 秒，均不含排队。get_task 的等待与 API 执行超时是两个独立概念，勿把 harness 工具超时设置成整个绘图耗时。
 
 文本/知识/音频输出上限默认 4096，可用 max_output_tokens 降低，不能超过服务配置。token 预算不限制图片费用、输入 token 或搜索次数。默认仅明确 429 限流最多重试 2 次，已识别额度不足不重试；网络/超时/5xx 不自动重发。重复提交没有幂等保护，取消也不能保证上游停止计费。失败不自动切换平台。
